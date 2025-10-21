@@ -55,6 +55,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+      - ./deps:/opt/airflow/deps
     ports:
       - "8080:8080"
     depends_on:
@@ -103,6 +104,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+      - ./deps:/opt/airflow/deps
       # Docker socket access for DockerOperator
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -128,6 +130,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+      - ./deps:/opt/airflow/deps
     depends_on:
       postgres:
         condition: service_healthy
@@ -265,6 +268,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+      - ./deps:/opt/airflow/deps
     depends_on:
       postgres:
         condition: service_healthy
