@@ -1,0 +1,6 @@
+apache-airflow==2.9.3
+apache-airflow-providers-microsoft-mssql
+apache-airflow-providers-odbc
+apache-airflow-providers-docker
+pyodbc
+setuptools_scm<9.0,>=5.0
