@@ -29,7 +29,7 @@ with DAG(
     dag_id='cfb_weekly_processing',
     default_args={'owner': 'airflow'},
     start_date=datetime(2025, 10, 11),
-    schedule=None,
+    schedule='0 12 * * 1',
     catchup=False,
 ) as dag:
 
