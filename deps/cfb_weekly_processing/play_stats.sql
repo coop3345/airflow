@@ -70,4 +70,4 @@ VALUES (source.game_id, source.season, source.week, source.team, source.opponent
 
 GO
 
-TRUNCATE cfb_load.dbo.play_stats;
+TRUNCATE TABLE cfb_load.dbo.play_stats;
