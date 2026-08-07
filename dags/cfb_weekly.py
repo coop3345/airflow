@@ -1,9 +1,9 @@
-from airflow import DAG
 from datetime import datetime, timedelta
-from airflow.models import Variable
-from airflow.providers.docker.operators.docker import DockerOperator
-from airflow.operators.python import PythonOperator
+
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG, Variable
 import os
 import logging
 
@@ -15,7 +15,7 @@ default_args = {
 
 def load_cfb_vars(**context):
     import logging
-    cfb_config = Variable.get("CFB_CONFIG", default_var=None, deserialize_json=True)
+    cfb_config = Variable.get("CFB_CONFIG", default=None, deserialize_json=True)
 
     for key, val in cfb_config.items():
         logging.info(f"{key} variable value: {val}")
@@ -36,7 +36,6 @@ with DAG(
     load_config = PythonOperator(
         task_id="load_config",
         python_callable=load_cfb_vars,
-        provide_context=True,  # ensures XCom push
     )
 
     cfb_api_ingest = DockerOperator(
@@ -44,15 +43,15 @@ with DAG(
         image="ecoop3345/cfb-current-week:latest",
         docker_conn_id='docker_default',
         api_version="auto",
-        auto_remove=True,
+        auto_remove="force",
         force_pull=True,
         mount_tmp_dir=False,
         command="./app",
         docker_url="unix://var/run/docker.sock",
         network_mode="host",
         environment={
-            "API_TOKEN": Variable.get("API_TOKEN", default_var=None),
-            "DSN_STRING": Variable.get("DSN_STRING", default_var=None),
+            "API_TOKEN": Variable.get("API_TOKEN", default=None),
+            "DSN_STRING": Variable.get("DSN_STRING", default=None),
             "GET_FULL_SEASON": "{{ ti.xcom_pull(task_ids='load_config')['GET_FULL_SEASON'] }}",
             "GET_OFFSEASON": "{{ ti.xcom_pull(task_ids='load_config')['GET_OFFSEASON'] }}",
             "GET_ONE_OFFS": "{{ ti.xcom_pull(task_ids='load_config')['GET_ONE_OFFS'] }}",

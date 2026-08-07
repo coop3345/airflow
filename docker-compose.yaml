@@ -1,13 +1,52 @@
-# docker-compose.yaml - Windows-safe Airflow stack with LocalExecutor
+# docker-compose.yaml - Airflow 3.3 with LocalExecutor
 # Configured for:
 # - LocalExecutor (no redis/worker needed)
 # - DockerOperator support for GoLang app containers
 # - MSSQL access to host machine via host.docker.internal
 # - Pre-configured connections and variables baked in
 
+x-airflow-common:
+  &airflow-common
+  image: custom-airflow:3.3.0
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret_change_me}
+    AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW_CONN_MSSQL_DEFAULT: ${AIRFLOW_CONN_MSSQL_DEFAULT}
+    AIRFLOW_CONN_DOCKER_DEFAULT: ${AIRFLOW_CONN_DOCKER_DEFAULT:-docker://docker-registry:2375}
+    AIRFLOW_VAR_API_TOKEN: ${AIRFLOW_VAR_API_TOKEN}
+    AIRFLOW_VAR_DSN_STRING: ${AIRFLOW_VAR_DSN_STRING}
+    AIRFLOW_VAR_CFB_CONFIG: ${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}
+    AIRFLOW_CONFIG: /opt/airflow/config/airflow.cfg
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    - ./deps:/opt/airflow/deps
+    - ./util:/opt/airflow/util
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - airflow-network
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
 services:
   postgres:
-    image: postgres:13
+    image: postgres:16
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -25,257 +64,123 @@ services:
     networks:
       - airflow-network
 
-  airflow-webserver:
-    image: custom-airflow:2.9.3
-    command: webserver
-    env_file:
-      - .env
-    environment:
-      # Executor configuration
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      
-      # Core settings
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
-      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
-      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
-      
-      # Pre-configured Connections
-      # MSSQL connection to host machine SQL Server
-      AIRFLOW_CONN_MSSQL_DEFAULT: ${AIRFLOW_CONN_MSSQL_DEFAULT}
-      # DockerHub connection for pulling private images (if needed)
-      AIRFLOW_CONN_DOCKER_DEFAULT: ${AIRFLOW_CONN_DOCKER_DEFAULT:-docker://docker-registry:2375}
-      
-      # Airflow Variables for GoLang app
-      AIRFLOW_VAR_CFB_CONFIG: ${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}
-
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./deps:/opt/airflow/deps
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
     ports:
       - "8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
-    restart: always
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
-    networks:
-      - airflow-network
-    # Enable access to host machine for MSSQL connection
+    restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-scheduler:
-    image: custom-airflow:2.9.3
+    <<: *airflow-common
     command: scheduler
-    env_file:
-      - .env
-    environment:
-      # Executor configuration
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      
-      # Core settings
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
-      
-      # Pre-configured Connections (REQUIRED: tasks run in scheduler with LocalExecutor)
-      AIRFLOW_CONN_MSSQL_DEFAULT: ${AIRFLOW_CONN_MSSQL_DEFAULT}
-      AIRFLOW_CONN_DOCKER_DEFAULT: ${AIRFLOW_CONN_DOCKER_DEFAULT}
-      
-      # Airflow Variables (REQUIRED: tasks run in scheduler with LocalExecutor)
-      AIRFLOW_VAR_API_TOKEN: ${AIRFLOW_VAR_API_TOKEN}
-      AIRFLOW_VAR_DSN_STRING: ${AIRFLOW_VAR_DSN_STRING}
-      AIRFLOW_VAR_CFB_CONFIG: ${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}
-
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
       - ./deps:/opt/airflow/deps
-      # Docker socket access for DockerOperator
+      - ./util:/opt/airflow/util
       - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      postgres:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
-    restart: always
-    networks:
-      - airflow-network
-    # Enable access to host machine for MSSQL connection
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-  airflow-triggerer:
-    image: custom-airflow:2.9.3
-    command: triggerer
-    env_file:
-      - .env
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./deps:/opt/airflow/deps
     depends_on:
-      postgres:
+      <<: *airflow-common-depends-on
+      airflow-apiserver:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: always
-    networks:
-      - airflow-network
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-init:
-    image: custom-airflow:2.9.3
+    <<: *airflow-common
     entrypoint: /bin/bash
     command:
       - -c
       - |
         set -e
-        echo "=========================================="
-        echo "Running Airflow DB init..."
-        echo "=========================================="
-        airflow db init
-        
-        echo "=========================================="
-        echo "Creating admin user..."
-        echo "=========================================="
-        airflow users create \
-          --username "${_AIRFLOW_WWW_USER_USERNAME:-airflow}" \
-          --firstname admin \
-          --lastname user \
-          --role Admin \
-          --email admin@example.com \
-          --password "${_AIRFLOW_WWW_USER_PASSWORD:-airflow}" || true
-        
-        echo "=========================================="
-        echo "Removing default connections..."
-        echo "=========================================="
-        # Delete all default connections that might have been created
-        airflow connections delete aws_default || true
-        airflow connections delete azure_batch_default || true
-        airflow connections delete azure_cosmos_default || true
-        airflow connections delete azure_data_explorer_default || true
-        airflow connections delete azure_data_lake_default || true
-        airflow connections delete cassandra_default || true
-        airflow connections delete databricks_default || true
-        airflow connections delete dingding_default || true
-        airflow connections delete druid_broker_default || true
-        airflow connections delete druid_ingest_default || true
-        airflow connections delete elasticsearch_default || true
-        airflow connections delete emr_default || true
-        airflow connections delete facebook_default || true
-        airflow connections delete fs_default || true
-        airflow connections delete google_cloud_default || true
-        airflow connections delete hive_cli_default || true
-        airflow connections delete hiveserver2_default || true
-        airflow connections delete http_default || true
-        airflow connections delete kafka_default || true
-        airflow connections delete kylin_default || true
-        airflow connections delete leveldb_default || true
-        airflow connections delete livy_default || true
-        airflow connections delete local_mysql || true
-        airflow connections delete metastore_default || true
-        airflow connections delete mongo_default || true
-        airflow connections delete mssql_default || true
-        airflow connections delete mysql_default || true
-        airflow connections delete opsgenie_default || true
-        airflow connections delete pig_cli_default || true
-        airflow connections delete pinot_admin_default || true
-        airflow connections delete postgres_default || true
-        airflow connections delete presto_default || true
-        airflow connections delete qubole_default || true
-        airflow connections delete redis_default || true
-        airflow connections delete segment_default || true
-        airflow connections delete sftp_default || true
-        airflow connections delete spark_default || true
-        airflow connections delete sqlite_default || true
-        airflow connections delete sqoop_default || true
-        airflow connections delete ssh_default || true
-        airflow connections delete tableau_default || true
-        airflow connections delete vertica_default || true
-        airflow connections delete wasb_default || true
-        airflow connections delete webhdfs_default || true
-        
-        echo "=========================================="
+        mkdir -p /opt/airflow/{logs,dags,plugins,config}
+        chown -R "$${AIRFLOW_UID:-50000}:0" /opt/airflow/
+        echo "Running database migration and creating admin user..."
+        /entrypoint airflow version
         echo "Creating custom connections..."
-        echo "=========================================="
-        # Create MSSQL connection if provided
         if [ -n "$${AIRFLOW_CONN_MSSQL_DEFAULT}" ]; then
-          echo "Creating MSSQL connection..."
-          airflow connections delete mssql_default || true
-          airflow connections add mssql_default \
-            --conn-uri "$${AIRFLOW_CONN_MSSQL_DEFAULT}"
-          echo "✓ MSSQL connection created"
+          /entrypoint airflow connections delete mssql_default || true
+          /entrypoint airflow connections add mssql_default --conn-uri "$${AIRFLOW_CONN_MSSQL_DEFAULT}"
+          echo "MSSQL connection created"
         else
-          echo "⚠ AIRFLOW_CONN_MSSQL_DEFAULT not set - skipping"
+          echo "AIRFLOW_CONN_MSSQL_DEFAULT not set - skipping"
         fi
-        
-        # Create Docker connection
         if [ -n "$${AIRFLOW_CONN_DOCKER_DEFAULT}" ]; then
-          echo "Creating Docker connection..."
-          airflow connections delete docker_default || true
-          airflow connections add docker_default \
-            --conn-uri "$${AIRFLOW_CONN_DOCKER_DEFAULT}"
-          echo "✓ Docker connection created"
+          /entrypoint airflow connections delete docker_default || true
+          /entrypoint airflow connections add docker_default --conn-uri "$${AIRFLOW_CONN_DOCKER_DEFAULT}"
+          echo "Docker connection created"
         else
-          echo "⚠ AIRFLOW_CONN_DOCKER_DEFAULT not set - using default"
+          echo "AIRFLOW_CONN_DOCKER_DEFAULT not set - skipping"
         fi
-        
-        echo "=========================================="
         echo "Setting Airflow variables..."
-        echo "=========================================="
-        # Set all Airflow variables
-        [ -n "$${AIRFLOW_VAR_API_TOKEN}" ] && airflow variables set API_TOKEN "$${AIRFLOW_VAR_API_TOKEN}" && echo "✓ API_TOKEN set" || echo "⚠ API_TOKEN not set"
-        [ -n "$${AIRFLOW_VAR_DSN_STRING}" ] && airflow variables set DSN_STRING "$${AIRFLOW_VAR_DSN_STRING}" && echo "✓ DSN_STRING set" || echo "⚠ DSN_STRING not set"
-        
-        airflow variables set CFB_CONFIG "$${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}"
-        
-        echo "✓ All variables set"
-        
-        echo "=========================================="
-        echo "Airflow initialization complete!"
-        echo "=========================================="
+        [ -n "$${AIRFLOW_VAR_API_TOKEN}" ] && /entrypoint airflow variables set API_TOKEN "$${AIRFLOW_VAR_API_TOKEN}" || true
+        [ -n "$${AIRFLOW_VAR_DSN_STRING}" ] && /entrypoint airflow variables set DSN_STRING "$${AIRFLOW_VAR_DSN_STRING}" || true
+        /entrypoint airflow variables set CFB_CONFIG "$${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}"
+        /entrypoint airflow pools set motherduck_writer 1 "serialize DuckDB/MotherDuck writes" || true
+        echo "Airflow initialization complete"
     environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
-      # Pass through connection URIs
-      AIRFLOW_CONN_MSSQL_DEFAULT: ${AIRFLOW_CONN_MSSQL_DEFAULT}
-      AIRFLOW_CONN_DOCKER_DEFAULT: ${AIRFLOW_CONN_DOCKER_DEFAULT:-}
-      # Pass through all variables
-      AIRFLOW_VAR_API_TOKEN: ${AIRFLOW_VAR_API_TOKEN}
-      AIRFLOW_VAR_DSN_STRING: ${AIRFLOW_VAR_DSN_STRING}
-      AIRFLOW_VAR_CFB_CONFIG: ${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}
-
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./deps:/opt/airflow/deps
+    user: "0:0"
     depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - .env
-    networks:
-      - airflow-network
+      <<: *airflow-common-depends-on
 
 volumes:
   postgres-db-volume:
