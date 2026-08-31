@@ -23,11 +23,11 @@ x-airflow-common:
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret_change_me}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__SDK__COORDINATORS: '{"go": {"classpath": "airflow.sdk.coordinators.executable.ExecutableCoordinator", "kwargs": {"executables_root": ["/opt/airflow/executable-bundles"]}}}'
+    AIRFLOW__SDK__QUEUE_TO_COORDINATOR: '{"golang": "go"}'
     AIRFLOW_CONN_MSSQL_DEFAULT: ${AIRFLOW_CONN_MSSQL_DEFAULT}
-    AIRFLOW_CONN_DOCKER_DEFAULT: ${AIRFLOW_CONN_DOCKER_DEFAULT:-docker://docker-registry:2375}
-    AIRFLOW_VAR_API_TOKEN: ${AIRFLOW_VAR_API_TOKEN}
-    AIRFLOW_VAR_DSN_STRING: ${AIRFLOW_VAR_DSN_STRING}
-    AIRFLOW_VAR_CFB_CONFIG: ${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}
+    AIRFLOW_CONN_CFB_SQLSERVER_CONN: ${AIRFLOW_CONN_CFB_SQLSERVER_CONN:-${AIRFLOW_CONN_DSN_SSMS}}
+    AIRFLOW_VAR_CFB_API_TOKEN: ${AIRFLOW_VAR_CFB_API_TOKEN:-${AIRFLOW_VAR_API_TOKEN}}
     AIRFLOW_CONFIG: /opt/airflow/config/airflow.cfg
   volumes:
     - ./dags:/opt/airflow/dags
@@ -36,6 +36,7 @@ x-airflow-common:
     - ./config:/opt/airflow/config
     - ./deps:/opt/airflow/deps
     - ./util:/opt/airflow/util
+    - ./executable-bundles:/opt/airflow/executable-bundles
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
     - airflow-network
@@ -100,6 +101,7 @@ services:
       - ./config:/opt/airflow/config
       - ./deps:/opt/airflow/deps
       - ./util:/opt/airflow/util
+      - ./executable-bundles:/opt/airflow/executable-bundles
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -147,7 +149,7 @@ services:
       - -c
       - |
         set -e
-        mkdir -p /opt/airflow/{logs,dags,plugins,config}
+        mkdir -p /opt/airflow/{logs,dags,plugins,config,executable-bundles}
         chown -R "$${AIRFLOW_UID:-50000}:0" /opt/airflow/
         echo "Running database migration and creating admin user..."
         /entrypoint airflow version
@@ -159,17 +161,14 @@ services:
         else
           echo "AIRFLOW_CONN_MSSQL_DEFAULT not set - skipping"
         fi
-        if [ -n "$${AIRFLOW_CONN_DOCKER_DEFAULT}" ]; then
-          /entrypoint airflow connections delete docker_default || true
-          /entrypoint airflow connections add docker_default --conn-uri "$${AIRFLOW_CONN_DOCKER_DEFAULT}"
-          echo "Docker connection created"
-        else
-          echo "AIRFLOW_CONN_DOCKER_DEFAULT not set - skipping"
+        if [ -n "$${AIRFLOW_CONN_CFB_SQLSERVER_CONN}" ]; then
+          /entrypoint airflow connections delete cfb_sqlserver_conn || true
+          /entrypoint airflow connections add cfb_sqlserver_conn --conn-uri "$${AIRFLOW_CONN_CFB_SQLSERVER_CONN}"
+          echo "CFB SQL Server connection created"
         fi
         echo "Setting Airflow variables..."
-        [ -n "$${AIRFLOW_VAR_API_TOKEN}" ] && /entrypoint airflow variables set API_TOKEN "$${AIRFLOW_VAR_API_TOKEN}" || true
+        [ -n "$${AIRFLOW_VAR_CFB_API_TOKEN}" ] && /entrypoint airflow variables set CFB_API_TOKEN "$${AIRFLOW_VAR_CFB_API_TOKEN}" || true
         [ -n "$${AIRFLOW_VAR_DSN_STRING}" ] && /entrypoint airflow variables set DSN_STRING "$${AIRFLOW_VAR_DSN_STRING}" || true
-        /entrypoint airflow variables set CFB_CONFIG "$${AIRFLOW_VAR_CFB_CONFIG:-{"END_SEASON":2025,"GET_FULL_SEASON":false,"GET_OFFSEASON":false,"GET_ONE_OFFS":false,"GET_SEASON":false,"GET_WEEKLY":true,"INSERT_CAL":false,"PSCD":"fbs,fcs","SEASON":2025,"SEASON_TYPE":"Regular","START_SEASON":2025,"WEEK":7}}"
         /entrypoint airflow pools set motherduck_writer 1 "serialize DuckDB/MotherDuck writes" || true
         echo "Airflow initialization complete"
     environment:
