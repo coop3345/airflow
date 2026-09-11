@@ -1,6 +1,15 @@
-apache-airflow==2.9.3
+apache-airflow==3.3.0
+apache-airflow-providers-standard
+apache-airflow-providers-fab
 apache-airflow-providers-microsoft-mssql
 apache-airflow-providers-odbc
 apache-airflow-providers-docker
+apache-airflow-providers-common-sql
 pyodbc
 setuptools_scm<9.0,>=5.0
+duckdb
+duckdb-engine
+python-dotenv
+nflreadpy
+nfl_data_py
+pandas

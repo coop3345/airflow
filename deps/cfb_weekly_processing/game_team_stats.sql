@@ -5,6 +5,9 @@ USING cfb_load.dbo.v_game_team_stats AS source
 ON target.game_id = source.game_id AND target.team = source.team
 WHEN MATCHED THEN
     UPDATE SET
+        season = source.season,
+        week = source.week,
+        season_type = source.season_type,
         total_yards = source.total_yards,
         rushing_attempts = source.rushing_attempts,
         yards_per_rush_attempt = source.yards_per_rush_attempt,

@@ -2,10 +2,9 @@ USE cfb_load;
 
 MERGE INTO cfb.dbo.rankings as t
 USING cfb_load.dbo.rankings as s
-	on t.season = s.season and t.season_type = s.season_type and t.week = s.week and t.poll = s.poll and t.rank = s.rank
+	on t.season = s.season and t.season_type = s.season_type and t.week = s.week and t.poll = s.poll and t.rank = s.rank and t.school = s.school
 WHEN MATCHED THEN UPDATE SET
 	t.team_id = s.team_id, 
-	t.school = s.school, 
 	t.conference = s.conference, 
 	t.first_place_votes = s.first_place_votes, 
 	t.points = s.points
