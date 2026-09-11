@@ -34,6 +34,8 @@ WEEKLY_SQL_FILES = [
     "rankings.sql",
     "sp_ratings.sql",
     "srs_ratings.sql",
+    "passing_plays.sql",
+    "rushing_plays.sql",
 ]
 
 OFFSEASON_SQL_FILES = [
@@ -146,3 +148,23 @@ def cfb_one_offs_ingestion():
     _sql_tasks(ONE_OFFS_SQL_FILES, one_offs_task)
 
 cfb_one_offs_ingestion()
+
+
+@dag(
+    dag_id="cfb_inspect_season_week",
+    description="Dry-run: resolve season/week from dag_run.conf + calendar (no weekly ingest)",
+    start_date=datetime(2026, 8, 1),
+    schedule=None,  # manual only
+    catchup=False,
+    default_args=default_args,
+    tags=["cfb", "aip-108", "golang", "inspect"],
+)
+def cfb_inspect_season_week():
+    @task.stub(queue="golang")
+    def InspectSeasonWeekTask():
+        """Logs resolved season/week/season_type from conf + calendar. No games/stats ingest."""
+        ...
+
+    InspectSeasonWeekTask()
+
+cfb_inspect_season_week()

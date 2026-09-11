@@ -1,6 +1,4 @@
-USE cfb;
-
-GO
+USE cfb_load;
 
 MERGE INTO cfb.dbo.play_stats_raw target
 USING (SELECT DISTINCT * FROM cfb_load.dbo.play_stats) source
@@ -9,8 +7,6 @@ on target.game_id = source.game_id and target.play_id = source.play_id
 WHEN NOT MATCHED THEN
 INSERT (game_id, season, week, team, conference, opponent, team_score, opponent_score, drive_id, play_id, period, clock_minutes, clock_seconds, yards_to_goal, down, distance, athlete_id, athlete_name, stat_type, stat)
 VALUES (source.game_id, source.season, source.week, source.team, source.conference, source.opponent, source.team_score, source.opponent_score, source.drive_id, source.play_id, source.period, source.clock_minutes, source.clock_seconds, source.yards_to_goal, source.down, source.distance, source.athlete_id, source.athlete_name, source.stat_type, source.stat);
-
-GO
 
 DECLARE @s int, @w int;
 SELECT @s = season , @w = week FROM cfb.dbo.calendar
@@ -67,7 +63,5 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN 
 INSERT (game_id, season, week, team, opponent, team_score, opponent_score, drive_id, play_id, period, clock_minutes, clock_seconds, down, distance, yards_to_goal, athlete_id, athlete_name, critical_play, Targets, Receptions, Rushes, RushYards, SackYards, SacksTaken, RecYards, Touchdowns, PassYards, Passes, Completions, Fumbles, IntThrown, ForcedFumbles, FumblesRecovered, Interceptions, PassBreakups, QBHurries, Sacks, BlockedFieldGoal, FieldGoalBlocked, FieldGoalAttemptDistance, FieldGoalMadeDistance, FieldGoalMissed, FieldGoalAttempts, FieldGoalMade)
 VALUES (source.game_id, source.season, source.week, source.team, source.opponent, source.team_score, source.opponent_score, source.drive_id, source.play_id, source.period, source.clock_minutes, source.clock_seconds, source.down, source.distance, source.yards_to_goal, source.athlete_id, source.athlete_name, source.critical_play, source.Targets, source.Receptions, source.Rushes, source.RushYards, source.SackYards, source.SacksTaken, source.RecYards, source.Touchdowns, source.PassYards, source.Passes, source.Completions, source.Fumbles, source.IntThrown, source.ForcedFumbles, source.FumblesRecovered, source.Interceptions, source.PassBreakups, source.QBHurries, source.Sacks, source.BlockedFieldGoal, source.FieldGoalBlocked, source.FieldGoalAttemptDistance, source.FieldGoalMadeDistance, source.FieldGoalMissed, source.FieldGoalAttempts, source.FieldGoalMade);
-
-GO
 
 TRUNCATE TABLE cfb_load.dbo.play_stats;
